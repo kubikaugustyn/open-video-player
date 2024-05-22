@@ -9,32 +9,18 @@
 <body>
 <h1>An OpenVideoPlayer example</h1>
 <div id="container"></div>
-<p>Lorem ipsum dolor sit amet</p>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<p>Test</p>
 <script>
     const player = new OpenVideoPlayer()
     document.getElementById("container").appendChild(player.container)
 
     // Video from https://gist.github.com/jsturgis/3b19447b304616f18657
-    player.play({
+    const videoInfo = {
         "title": "Big Buck Bunny",
         "subtitle": "By Blender Foundation",
         "description": "Big Buck Bunny tells the story of a giant rabbit with a heart bigger than himself. When one sunny day three rodents rudely harass him, something snaps... and the rabbit ain't no bunny anymore! In the typical cartoon tradition he prepares the nasty rodents a comical revenge.\n\nLicensed under the Creative Commons Attribution license\nhttp://www.bigbuckbunny.org",
         "sources": [
             {
-                "url": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
                 "type": "video/mp4"
             }
         ],
@@ -42,7 +28,13 @@
         "author": {
             "name": "The Blender Foundation"
         }
-    }, {playImmediately: !false})
+    }
+
+    player.play(videoInfo, {playImmediately: false})
+
+    const player2 = new OpenVideoPlayer()
+    document.getElementById("container").appendChild(player2.container)
+    player2.play(videoInfo, {playImmediately: false})
 </script>
 <style>
     html, body {

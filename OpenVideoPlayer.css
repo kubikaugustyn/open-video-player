@@ -1,3 +1,8 @@
+/*
+Copyright (c) 2024 Jakub Augustýn
+SPDX-License-Identifier: MIT
+ */
+@import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
 /*Player standalone class styles*/
 
 /*Player controls button styles*/
@@ -18,6 +23,21 @@
     left: 0;
     width: 100%;
     height: 100%;
+}
+
+/*Player info box styles*/
+.info-box, .info-box * {
+    opacity: 0;
+    transition: opacity linear .65s; /* + 100ms from JS */
+}
+
+.info-box, .info-box * {
+    pointer-events: none;
+}
+
+.info-box.show {
+    opacity: 1;
+    transition: opacity linear 0s;
 }
 
 /*Player slider styles*/
@@ -143,11 +163,17 @@
     border-radius: var(--border-radius);
     overflow: hidden;
 
+    /*Font*/
+    font-family: "Roboto", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+
     background-color: var(--background);
 
     --z-index-video: 1;
     --z-index-controls: 2;
-    --z-index-thumbnail: 3;
+    --z-index-infos: 3;
+    --z-index-thumbnail: 4;
 
     --controls-play-order: 1;
     --controls-volume-order: 2;
@@ -177,6 +203,8 @@
 /*Player theme styles*/
 .open-video-player.theme-light {
     --background: #000;
+    --infos-background: #0008;
+    --infos-color: #fff;
     --thumbnail-background: #ccc;
     --thumbnail-play-background: #666;
     --thumbnail-play-color: #eee;
@@ -186,6 +214,8 @@
 
 .open-video-player.theme-dark {
     --background: #383838;
+    --infos-background: #0008;
+    --infos-color: #fff;
     --thumbnail-background: #ddd;
     --thumbnail-play-background: white;
     --thumbnail-play-color: #666;
@@ -222,6 +252,7 @@
 /*Player sub-container styles*/
 .open-video-player > .video,
 .open-video-player > .thumbnail,
+.open-video-player > .infos,
 .open-video-player > .controls {
     position: absolute;
     width: 100%;
@@ -277,6 +308,57 @@
 
 .open-video-player > .thumbnail:hover > .thumbnail-play-button {
     opacity: 90%;
+}
+
+/*Player infos styles*/
+.open-video-player > .infos {
+    z-index: var(--z-index-infos);
+    pointer-events: none;
+    position: relative;
+}
+
+.open-video-player > .infos > .info-box {
+    background-color: var(--infos-background);
+    color: var(--infos-color);
+    font-size: 1.5rem;
+}
+
+.open-video-player > .infos > .volume,
+.open-video-player > .infos > .back,
+.open-video-player > .infos > .forward {
+    width: fit-content;
+    position: absolute;
+}
+
+.open-video-player > .infos > .volume {
+    height: fit-content;
+    border-radius: 5px;
+    left: 50%;
+    top: 10%;
+    transform: translateX(-50%);
+    padding: 5px;
+}
+
+.open-video-player > .infos > .back,
+.open-video-player > .infos > .forward {
+    box-sizing: border-box;
+    height: var(--elem-width);
+    border-radius: calc(var(--elem-width) / 2);
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 5px;
+
+    text-align: center;
+    vertical-align: middle;
+    line-height: var(--elem-height);
+}
+
+.open-video-player > .infos > .back {
+    left: 5%;
+}
+
+.open-video-player > .infos > .forward {
+    right: 5%;
 }
 
 /*Player controls styles*/
