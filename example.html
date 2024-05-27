@@ -30,11 +30,11 @@
         }
     }
 
-    player.play(videoInfo, {playImmediately: false})
+    player.play(videoInfo, {playImmediately: false, showVideoInfo: true})
 
     const player2 = new OpenVideoPlayer()
     document.getElementById("container").appendChild(player2.container)
-    player2.play(videoInfo, {playImmediately: false})
+    player2.play(videoInfo, {playImmediately: false, showVideoInfo: false})
 </script>
 <style>
     html, body {

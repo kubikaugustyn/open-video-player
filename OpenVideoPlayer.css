@@ -253,6 +253,7 @@ SPDX-License-Identifier: MIT
 .open-video-player > .video,
 .open-video-player > .thumbnail,
 .open-video-player > .infos,
+.open-video-player > .video-info,
 .open-video-player > .controls {
     position: absolute;
     width: 100%;
@@ -359,6 +360,15 @@ SPDX-License-Identifier: MIT
 
 .open-video-player > .infos > .forward {
     right: 5%;
+}
+
+/*Player video info styles*/
+.open-video-player > .video-info {
+    display: none;
+}
+
+.open-video-player > .video-info.show {
+    display: block;
 }
 
 /*Player controls styles*/

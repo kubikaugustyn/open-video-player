@@ -641,7 +641,7 @@ class OpenVideoPlayerVideoInfo {
     subtitle
     /**
      * A list of video source infos
-     * @type {{url: URL, resolution: string|undefined, framerate: number|undefined, type: string}[]}
+     * @type {{url: URL, resolution: string|undefined, framerate: number|undefined, type: string, isAudio: boolean}[]}
      */
     sources
     /**
@@ -657,6 +657,9 @@ class OpenVideoPlayerVideoInfo {
      */
     author
 
+    /**
+     * @param videoInfo {{title: string, subtitle: string|undefined, thumbnail: string, author: {name: string, profilePicture: URL|undefined, profileUrl: URL|undefined}, description: string, sources: {url: URL, resolution: string|undefined, framerate: number|undefined, type: string}[]}}
+     */
     constructor(videoInfo) {
         if (!videoInfo.title || !videoInfo.thumbnail || !videoInfo.author.name || !videoInfo.description || !videoInfo.sources)
             throw new Error(`Not sufficient video info`)
@@ -666,11 +669,18 @@ class OpenVideoPlayerVideoInfo {
         this.sources = videoInfo.sources.map(source => {
             if (!(source.url instanceof URL))
                 source.url = new URL(source.url)
+
+            if (source.type.indexOf("/") === -1 || // No slash
+                source.type.indexOf("/") !== source.type.lastIndexOf("/") || // Multiple slashes
+                (!source.type.startsWith("video/") && !source.type.startsWith("audio/"))) // Not video nor audio
+                throw new Error(`Unknown source type: ${source.type}`)
+
             return {
                 url: source.url,
                 resolution: source.resolution,
                 framerate: source.framerate,
-                type: source.type
+                type: source.type,
+                isAudio: source.type.startsWith("audio/")
             }
         })
         this.description = videoInfo.description
@@ -683,7 +693,11 @@ class OpenVideoPlayerVideoInfo {
     }
 }
 
-class OpenVideoPlayer extends EventTarget {
+class OpenVideoPlayerUI extends EventTarget {
+    /**
+     * @type {OpenVideoPlayer}
+     */
+    #player
     /**
      * @type {HTMLDivElement}
      */
@@ -723,27 +737,24 @@ class OpenVideoPlayer extends EventTarget {
      */
     #controlsElements
     /**
+     * @type {Object} TODO Denote the type
+     */
+    #videoInfoElements
+    /**
      * @type {OpenVideoPlayerStyle}
      */
     #style
-    /**
-     * @type {OpenVideoPlayerVideoInfo}
-     */
-    #currentVideo
-    /**
-     * @type {boolean}
-     */
-    #freezeControls
 
-    constructor() {
-        super()
+    constructor(player) {
+        super();
+        this.#player = player
         this.#createContainer()
         this.#createVideo()
         this.#createThumbnail()
+        this.#createVideoInfo()
         this.#createInfos()
         this.#createControls()
         this.#style = new OpenVideoPlayerStyle(this)
-        this.#freezeControls = false
     }
 
     #createContainer() {
@@ -751,7 +762,7 @@ class OpenVideoPlayer extends EventTarget {
         cont.classList.add("open-video-player")
         this.#containerBBox = new OpenVideoPlayerUtils.CachedBBox(cont)
 
-        cont.addEventListener("keydown", this.#onKeyDown.bind(this))
+        cont.addEventListener("keydown", this.#player.onKeyDownProxy.bind(this.#player))
         cont.setAttribute("tabindex", "0"); // Enable registering of key events
 
         (() => {
@@ -769,7 +780,7 @@ class OpenVideoPlayer extends EventTarget {
         video.innerHTML = "Your browser does not support the video tag."
 
         // Add some listeners
-        OpenVideoPlayerUtils.addEventListeners(video, ["play", "pause"], () => this.#updatePausedControls())
+        OpenVideoPlayerUtils.addEventListeners(video, ["play", "pause"], () => this.updatePausedControls())
 
         this.#container.appendChild(video)
     }
@@ -777,7 +788,7 @@ class OpenVideoPlayer extends EventTarget {
     #createThumbnail() {
         const thumbnail = this.#thumbnail = document.createElement("div")
         thumbnail.classList.add("thumbnail")
-        thumbnail.addEventListener("click", this.#startPlaying.bind(this))
+        thumbnail.addEventListener("click", this.#player.startPlayingProxy.bind(this.#player))
 
         const img = this.#thumbnailImg = document.createElement("img")
         img.setAttribute("loading", "lazy")
@@ -848,10 +859,10 @@ class OpenVideoPlayer extends EventTarget {
         time.classList.add("time")
         const timeSlider = this.#controlsElements.timeSlider = new OpenVideoPlayerSlider(time)
         timeSlider.addEventListener("change", e => {
-            if (this.#freezeControls) return // If the controls are frozen
+            if (this.#player.controlsFrozen) return // If the controls are frozen
             if (e.ghostValue !== null) return // If the user is only moving the ghost slider
             if (!e.valueHasChanged) return // If the user just left moving the ghost slider
-            this.#setTime(e.value)
+            this.setTime(e.value)
         })
         timeSlider.addEventListener("resize", e => {
             const bbox = this.#containerBBox.value
@@ -860,22 +871,16 @@ class OpenVideoPlayer extends EventTarget {
             time.style.setProperty("--slider-thick-height", String(Number(multiplier * 7).toPrecision(2)).concat("px"))
         })
         this.#video.addEventListener("timeupdate", e => {
-            const lastFreezeControls = this.#freezeControls
-            this.#freezeControls = true
-
+            this.#player.freezeControls()
             timeSlider.value = this.#video.currentTime
-
-            this.#freezeControls = lastFreezeControls
+            this.#player.unfreezeControls()
         })
         this.#video.addEventListener("durationchange", e => {
-            const lastFreezeControls = this.#freezeControls
-            this.#freezeControls = true
-
+            this.#player.freezeControls()
             const currentTime = this.#video.currentTime
             timeSlider.range(0, this.#video.duration, 1 / 60)
             timeSlider.value = OpenVideoPlayerUtils.clamp(currentTime, 0, this.#video.duration)
-
-            this.#freezeControls = lastFreezeControls
+            this.#player.unfreezeControls()
         })
 
         // Bottom controls
@@ -888,9 +893,9 @@ class OpenVideoPlayer extends EventTarget {
         // Play/pause
         const playPause = this.#controlsElements.playPause = new OpenVideoPlayerControlsButton("play-pause")
         playPause.element.classList.add("play-pause", "controls-item")
-        playPause.addEventListener("click", this.#togglePaused.bind(this))
-        this.#video.addEventListener("click", this.#togglePaused.bind(this))
-        this.#updatePausedControls()
+        playPause.addEventListener("click", this.togglePaused.bind(this))
+        this.#video.addEventListener("click", this.togglePaused.bind(this))
+        this.updatePausedControls()
         leftControls.appendChild(playPause.element)
         // Volume
         const volume = this.#controlsElements.volume = document.createElement("div")
@@ -901,21 +906,21 @@ class OpenVideoPlayer extends EventTarget {
         })
         const volumeButton = this.#controlsElements.volumeButton = new OpenVideoPlayerControlsButton("volume")
         volumeButton.element.classList.add("volume-button")
-        volumeButton.addEventListener("click", this.#toggleMuted.bind(this))
+        volumeButton.addEventListener("click", this.toggleMuted.bind(this))
         // volume.addEventListener("click", this.#toggleMuted.bind(this))
         const volumeSliderContainer = this.#controlsElements.volumeSliderContainer = document.createElement("div")
         volumeSliderContainer.classList.add("volume-slider")
         const volumeSlider = this.#controlsElements.volumeSlider = new OpenVideoPlayerSlider(volumeSliderContainer)
         volumeSlider.range(0, 1, .05)
         volumeSlider.addEventListener("change", e => {
-            if (this.#freezeControls) return // If the controls are frozen
+            if (this.#player.controlsFrozen) return // If the controls are frozen
             if (e.ghostValue !== null) return // If the user is only moving the ghost slider
             if (!e.valueHasChanged) return // If the user just left moving the ghost slider
             if (this.#video.muted && e.value > 0) {
                 volumeSlider.value = 0
                 return
             }
-            this.#setVolume(e.value)
+            this.setVolume(e.value)
         })
         volumeSlider.addEventListener("resize", e => {
             const bbox = rootBBox.value
@@ -923,7 +928,7 @@ class OpenVideoPlayer extends EventTarget {
             volumeSliderContainer.style.setProperty("--slider-thick-height", String(Number(bbox.height / 11).toPrecision(2)).concat("px"))
         })
         volumeSlider.value = 1 // Default value
-        this.#updateVolumeControls()
+        this.updateVolumeControls()
         volume.appendChild(volumeButton.element)
         volume.appendChild(volumeSliderContainer)
         leftControls.appendChild(volume)
@@ -934,8 +939,8 @@ class OpenVideoPlayer extends EventTarget {
         // Fullscreen
         const fullscreen = this.#controlsElements.fullscreen = new OpenVideoPlayerControlsButton("fullscreen")
         fullscreen.element.classList.add("fullscreen", "controls-item")
-        fullscreen.addEventListener("click", this.#toggleFullscreen.bind(this))
-        this.#video.addEventListener("dblclick", this.#toggleFullscreen.bind(this))
+        fullscreen.addEventListener("click", this.toggleFullscreen.bind(this))
+        this.#video.addEventListener("dblclick", this.toggleFullscreen.bind(this))
         rightControls.appendChild(fullscreen.element)
 
         // Finalize bottom controls
@@ -950,39 +955,22 @@ class OpenVideoPlayer extends EventTarget {
         this.#container.appendChild(root)
     }
 
-    async #toggleFullscreen() {
-        if (!document.fullscreenElement) {
-            await this.#container.requestFullscreen();
-        } else if (document.exitFullscreen) {
-            await document.exitFullscreen();
-        }
-    }
+    #createVideoInfo() {
+        this.#videoInfoElements = {}
+        const root = this.#videoInfoElements.root = document.createElement("div")
+        root.classList.add("video-info")
 
-    async #togglePaused() {
-        if (this.#video.paused) {
-            await this.#video.play()
-        } else {
-            await this.#video.pause()
-        }
+        // TODO Add the video info containers etc.
 
-        this.#updatePausedControls()
-    }
-
-    async #toggleMuted() {
-        this.#video.muted = !this.#video.muted
-
-        if (this.#video.muted) this.#controlsElements.volumeSlider.value = 0// When muted, the slider should not show any volume
-        else this.#controlsElements.volumeSlider.value = this.#video.volume // When unmuted, the slider should sync again
-
-        this.#updateVolumeControls()
-        this.#showVolumeInfo(this.#controlsElements.volumeSlider.value)
+        // Finalize
+        this.#container.appendChild(root)
     }
 
     /**
      * @param url {URL}
      * @param type {string}
      */
-    #addSource(url, type) {
+    addSource(url, type) {
         const src = url.toString()
         if (this.#videoSources.find(source => source.src === src)) throw new Error("Source already exists")
 
@@ -995,7 +983,7 @@ class OpenVideoPlayer extends EventTarget {
         this.#video.classList.remove("blank")
     }
 
-    #removeSource(url, type) {
+    removeSource(url, type) {
         const src = url.toString()
         const source = this.#videoSources.find(source => source.src === src)
         if (!source || source.type !== type) throw new Error("Source doesn't exist")
@@ -1004,17 +992,164 @@ class OpenVideoPlayer extends EventTarget {
         this.#videoSources.length || this.#video.classList.add("blank")
     }
 
-    #resetVideo() {
-        this.#videoSources.forEach(source => this.#removeSource(new URL(source.src), source.type))
+    resetVideo() {
+        this.#videoSources.forEach(source => this.removeSource(new URL(source.src), source.type))
     }
 
-    #showThumbnail(url) {
+    showThumbnail(url) {
         this.#thumbnailImg.src = url.toString()
         this.#thumbnail.classList.add("show")
     }
 
-    #hideThumbnail() {
+    hideThumbnail() {
         this.#thumbnail.classList.remove("show")
+    }
+
+    toggleVideoInfo(show) {
+        this.#videoInfoElements.root.classList.toggle("show", show)
+    }
+
+    updatePausedControls() {
+        const paused = this.#video.paused
+        this.#controlsElements.playPause.index = Number(!paused)
+    }
+
+    updateVolumeControls() {
+        const muted = this.#video.muted,
+            volume = this.#video.volume
+        this.#controlsElements.volumeButton.index = (muted || volume === 0) ? 0 : (volume <= .5 ? 1 : 2)
+    }
+
+    showVolumeInfo(volume) {
+        this.#infosElements.volume.element.innerText = `${Math.round(volume * 100)}%`
+        this.#infosElements.volume.show()
+    }
+
+    showTimeInfo(seconds) {
+        /**
+         * @type {OpenVideoPlayerInfoBox}
+         */
+        const info = seconds < 0 ? this.#infosElements.back : this.#infosElements.forward
+        info.element.innerText = `${seconds > 0 ? "+" : "-"} ${Math.abs(seconds)} second${(seconds === 1 || seconds === -1) ? "" : "s"}`
+        info.show()
+    }
+
+    setVolume(volume) {
+        if (this.video.muted) return
+        this.video.volume = volume
+        this.updateVolumeControls()
+    }
+
+    setTime(seconds) {
+        this.video.currentTime = seconds
+    }
+
+    async changeVolumeBy(percentage) {
+        if (this.video.muted) await this.toggleMuted()
+
+        /**
+         * @type {OpenVideoPlayerSlider}
+         */
+        const volume = this.#controlsElements.volumeSlider
+        volume.value += percentage / 100
+
+        this.updateVolumeControls()
+        this.showVolumeInfo(volume.value)
+    }
+
+    async changeTimeBy(seconds) {
+        /**
+         * @type {OpenVideoPlayerSlider}
+         */
+        const time = this.#controlsElements.timeSlider
+        time.value += seconds
+
+        this.updatePausedControls()
+        this.showTimeInfo(seconds)
+    }
+
+    async toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            await this.container.requestFullscreen();
+        } else if (document.exitFullscreen) {
+            await document.exitFullscreen();
+        }
+    }
+
+    async togglePaused() {
+        if (this.video.paused) {
+            await this.video.play()
+        } else {
+            await this.video.pause()
+        }
+
+        this.updatePausedControls()
+    }
+
+    async toggleMuted() {
+        const volumeSlider = this.controlsElement("volumeSlider")
+
+        this.video.muted = !this.video.muted
+
+        if (this.video.muted) volumeSlider.value = 0// When muted, the slider should not show any volume
+        else volumeSlider.value = this.video.volume // When unmuted, the slider should sync again
+
+        this.updateVolumeControls()
+        this.showVolumeInfo(volumeSlider.value)
+    }
+
+    // Getters
+    get container() {
+        return this.#container
+    }
+
+    get style() {
+        return this.#style
+    }
+
+    get video() {
+        return this.#video
+    }
+
+    controlsElement(name) {
+        // I don't care if you get the prototype or whatever
+        // TODO Fix private property leak
+        return this.#controlsElements[name]
+    }
+}
+
+class OpenVideoPlayer extends EventTarget {
+    /**
+     * @type {OpenVideoPlayerUI}
+     */
+    #ui
+    /**
+     * @type {OpenVideoPlayerVideoInfo|null}
+     */
+    #currentVideo
+    /**
+     * If 0, the controls aren't frozen, otherwise they are. Get with controlsFrozen, change with freezeControls and unfreezeControls.
+     * @type {number}
+     */
+    #freezeControls
+
+    constructor() {
+        super()
+        this.#currentVideo = null
+        this.#freezeControls = 0
+        this.#ui = new OpenVideoPlayerUI(this)
+    }
+
+    freezeControls() {
+        this.#freezeControls++
+    }
+
+    unfreezeControls() {
+        this.#freezeControls--
+    }
+
+    get controlsFrozen() {
+        return this.#freezeControls > 0
     }
 
     /**
@@ -1022,42 +1157,43 @@ class OpenVideoPlayer extends EventTarget {
      * @returns {Promise<void>}
      */
     async #onKeyDown(e) {
+        const timeSlider = this.#ui.controlsElement("timeSlider")
         let preventDefault = true
 
         switch (e.code) {
             case "Space":
             case "KeyK":
-                await this.#togglePaused()
+                await this.#ui.togglePaused()
                 break
             case "KeyF":
-                await this.#toggleFullscreen()
+                await this.#ui.toggleFullscreen()
                 break
             case "KeyM":
-                await this.#toggleMuted()
+                await this.#ui.toggleMuted()
                 break
             case "KeyJ":
-                await this.#changeTimeBy(-10)
+                await this.#ui.changeTimeBy(-10)
                 break
             case "KeyL":
-                await this.#changeTimeBy(10)
+                await this.#ui.changeTimeBy(10)
                 break
             case "ArrowLeft":
-                await this.#changeTimeBy(-5)
+                await this.#ui.changeTimeBy(-5)
                 break
             case "ArrowRight":
-                await this.#changeTimeBy(5)
+                await this.#ui.changeTimeBy(5)
                 break
             case "ArrowUp":
-                await this.#changeVolumeBy(5)
+                await this.#ui.changeVolumeBy(5)
                 break
             case "ArrowDown":
-                await this.#changeVolumeBy(-5)
+                await this.#ui.changeVolumeBy(-5)
                 break
             case "Home":
-                this.#controlsElements.timeSlider.rawValue = 0
+                timeSlider.rawValue = 0
                 break
             case "End":
-                this.#controlsElements.timeSlider.rawValue = 1
+                timeSlider.rawValue = 1
                 break
             case "Numpad0":
             case "Numpad1":
@@ -1080,7 +1216,7 @@ class OpenVideoPlayer extends EventTarget {
             case "Digit8":
             case "Digit9":
                 // Skipping to percentage of the video
-                this.#controlsElements.timeSlider.rawValue = parseInt(e.key[e.key.length - 1]) / 10
+                timeSlider.rawValue = parseInt(e.key[e.key.length - 1]) / 10
                 break
             default:
                 preventDefault = false
@@ -1089,87 +1225,29 @@ class OpenVideoPlayer extends EventTarget {
         if (preventDefault) e.preventDefault()
     }
 
-    #updatePausedControls() {
-        const paused = this.#video.paused
-        this.#controlsElements.playPause.index = Number(!paused)
-    }
-
-    #updateVolumeControls() {
-        const muted = this.#video.muted,
-            volume = this.#video.volume
-        this.#controlsElements.volumeButton.index = (muted || volume === 0) ? 0 : (volume <= .5 ? 1 : 2)
-    }
-
-    #showVolumeInfo(volume) {
-        this.#infosElements.volume.element.innerText = `${Math.round(volume * 100)}%`
-        this.#infosElements.volume.show()
-    }
-
-    #showTimeInfo(seconds) {
-        /**
-         * @type {OpenVideoPlayerInfoBox}
-         */
-        const info = seconds < 0 ? this.#infosElements.back : this.#infosElements.forward
-        info.element.innerText = `${seconds > 0 ? "+" : "-"} ${Math.abs(seconds)} second${(seconds === 1 || seconds === -1) ? "" : "s"}`
-        info.show()
-    }
-
     async #startPlaying() {
         console.log("Starting playing...")
-        this.#hideThumbnail()
-        await this.#video.play()
-        this.#updatePausedControls()
-        this.#updateVolumeControls()
-    }
-
-    #setVolume(volume) {
-        if (this.#video.muted) return
-        this.#video.volume = volume
-        this.#updateVolumeControls()
-    }
-
-    #setTime(seconds) {
-        this.#video.currentTime = seconds
-    }
-
-    async #changeVolumeBy(percentage) {
-        if (this.#video.muted) await this.#toggleMuted()
-
-        /**
-         * @type {OpenVideoPlayerSlider}
-         */
-        const volume = this.#controlsElements.volumeSlider
-        volume.value += percentage / 100
-
-        this.#updateVolumeControls()
-        this.#showVolumeInfo(volume.value)
-    }
-
-    async #changeTimeBy(seconds) {
-        /**
-         * @type {OpenVideoPlayerSlider}
-         */
-        const time = this.#controlsElements.timeSlider
-        time.value += seconds
-
-        this.#updatePausedControls()
-        this.#showTimeInfo(seconds)
+        this.#ui.hideThumbnail()
+        await this.#ui.video.play()
+        this.#ui.updatePausedControls()
+        this.#ui.updateVolumeControls()
     }
 
     /**
      * Plays a video according to its video info, with the provided options
-     * @param videoInfo {Object|OpenVideoPlayerVideoInfo}
-     * @param playOptions {{playImmediately: boolean}}
+     * @param videoInfo {OpenVideoPlayerVideoInfo|VIDEO_INFO_OBJECT}
+     * @param playOptions {{playImmediately: boolean, showVideoInfo: boolean}}
+     * @template VIDEO_INFO_OBJECT {{title: string, subtitle: string|undefined, thumbnail: string, author: {name: string, profilePicture: URL|undefined, profileUrl: URL|undefined}, description: string, sources: {url: URL, resolution: string|undefined, framerate: number|undefined, type: string}[]}}
      * @returns {Promise<void>}
      */
     async play(videoInfo, playOptions) {
         const info = this.#currentVideo = videoInfo instanceof OpenVideoPlayerVideoInfo ? videoInfo : new OpenVideoPlayerVideoInfo(videoInfo)
         // console.log("Play:", info)
 
-        this.#resetVideo()
+        this.#ui.resetVideo()
 
         for (const source of info.sources) {
-            this.#addSource(source.url, source.type)
+            this.#ui.addSource(source.url, source.type)
         }
 
         if (playOptions.playImmediately) {
@@ -1181,20 +1259,31 @@ class OpenVideoPlayer extends EventTarget {
                 console.error("Autoplay failed:", e)
             }
         }
-        if (!playOptions.playImmediately) this.#showThumbnail(info.thumbnail)
+        if (!playOptions.playImmediately) this.#ui.showThumbnail(info.thumbnail)
+
+        this.#ui.toggleVideoInfo(playOptions.showVideoInfo)
     }
 
     /**
      * @returns {HTMLDivElement}
      */
     get container() {
-        return this.#container
+        return this.#ui.container
     }
 
     /**
      * @returns {OpenVideoPlayerStyle}
      */
     get style() {
-        return this.#style
+        return this.#ui.style
+    }
+
+    // Proxies for the UI
+    onKeyDownProxy(e) {
+        return this.#onKeyDown(e)
+    }
+
+    async startPlayingProxy() {
+        await this.#startPlaying()
     }
 }

@@ -5,6 +5,13 @@ comes to providing videos and advertisements to it, while keeping its look prett
 users don't use a completely new video player on every website. It is inspired by the YouTube video player.
 
 ## Example code
+Import the player code:
+```html
+<script src="https://raw.githubusercontent.com/kubikaugustyn/open-video-player/main/OpenVideoPlayer.js"></script>
+<link rel="stylesheet" type="text/css" href="https://raw.githubusercontent.com/kubikaugustyn/open-video-player/main/OpenVideoPlayer.css">
+```
+
+Then you can use it:
 ```javascript
 const player = new OpenVideoPlayer()
 document.body.appendChild(player.container)
