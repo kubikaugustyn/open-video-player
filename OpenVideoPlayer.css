@@ -173,6 +173,7 @@ SPDX-License-Identifier: MIT
     --z-index-video: 1;
     --z-index-controls: 2;
     --z-index-infos: 3;
+    --z-index-video-info: 3;
     --z-index-thumbnail: 4;
 
     --controls-play-order: 1;
@@ -182,6 +183,7 @@ SPDX-License-Identifier: MIT
 
     --padding-thumbnail: 10px;
     --padding-controls: 10px;
+    --padding-video-info: 10px;
     --border-radius: 5px;
 }
 
@@ -205,6 +207,7 @@ SPDX-License-Identifier: MIT
     --background: #000;
     --infos-background: #0008;
     --infos-color: #fff;
+    --video-info-text-color: #fff;
     --thumbnail-background: #ccc;
     --thumbnail-play-background: #666;
     --thumbnail-play-color: #eee;
@@ -216,6 +219,7 @@ SPDX-License-Identifier: MIT
     --background: #383838;
     --infos-background: #0008;
     --infos-color: #fff;
+    --video-info-text-color: #fff;
     --thumbnail-background: #ddd;
     --thumbnail-play-background: white;
     --thumbnail-play-color: #666;
@@ -362,20 +366,67 @@ SPDX-License-Identifier: MIT
     right: 5%;
 }
 
-/*Player video info styles*/
-.open-video-player > .video-info {
-    display: none;
+/*Player video info and controls styles*/
+.open-video-player > .video-info,
+.open-video-player > .controls {
+    opacity: 0;
+    transition: ease-in-out .75s;
 }
 
-.open-video-player > .video-info.show {
-    display: block;
+.open-video-player > .video-info.show,
+.open-video-player > .controls.show {
+    opacity: 1;
+    transition-duration: .15s;
+}
+
+/*Player video info styles*/
+.open-video-player > .video-info {
+    z-index: var(--z-index-video-info);
+    box-sizing: border-box;
+    width: 100%;
+    height: max(10%, .9in);
+    padding: var(--padding-video-info);
+    position: relative;
+    color: var(--video-info-text-color);
+
+    display: flex;
+    flex-flow: row nowrap;
+    justify-content: space-between;
+    align-items: stretch;
+    align-content: space-between;
+}
+
+.open-video-player > .video-info > .left,
+.open-video-player > .video-info > .right {
+    flex-grow: 1;
+}
+
+.open-video-player > .video-info > .left {
+    order: 1;
+}
+
+.open-video-player > .video-info > .right {
+    order: 2;
+}
+
+.open-video-player > .video-info > .left > .author {
+    cursor: default;
+    height: 100%;
+}
+
+.open-video-player > .video-info > .left > .author.link {
+    cursor: pointer;
+}
+
+.open-video-player > .video-info > .left > .author > .author-name {
+    height: 100%;
+    font-size: calc(var(--elem-height) / 3);
+    line-height: var(--elem-height);
 }
 
 /*Player controls styles*/
 .open-video-player > .controls {
     z-index: var(--z-index-controls);
-    opacity: 0;
-    transition: ease-in-out .75s;
     bottom: 0;
     height: max(5%, .6in); /*5% for big devices, inches for smaller devices*/
     width: calc(100% - 2 * var(--padding-controls));
@@ -385,11 +436,6 @@ SPDX-License-Identifier: MIT
     display: block;
 
     background-color: var(--controls-background);
-}
-
-.open-video-player > .controls.show {
-    opacity: 1;
-    transition-duration: .15s;
 }
 
 .open-video-player:has(.controls:not(.show)) > .video {

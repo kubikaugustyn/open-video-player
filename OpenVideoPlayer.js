@@ -66,6 +66,19 @@ class OpenVideoPlayerUtils {
         element.style.setProperty("--elem-height", String(bbox.height).concat("px"))
     }
 
+    /**
+     * @param url {URL}
+     */
+    static openLinkInNewTab(url) {
+        if (url.protocol === "javascript:") return // No XSS!!!
+        if (!["http:", "https:"].includes(url.protocol)) {
+            const allow = confirm(`Attempted to open an invalid URL\nYou were protected from a potentially malicious URL with an unknown protocol - ${url.protocol}\nTarget URL:\n${url.toString()}\nOpen?`)
+            if (!allow) return
+        }
+        // See https://developer.mozilla.org/en-US/docs/Web/API/Window/open#noreferrer for more info
+        window.open(url, "_blank", "noreferrer")
+    }
+
     static {
         document.addEventListener("DOMContentLoaded", () => {
             for (let element of this.#CSSSizeObservers.keys()) {
@@ -658,7 +671,7 @@ class OpenVideoPlayerVideoInfo {
     author
 
     /**
-     * @param videoInfo {{title: string, subtitle: string|undefined, thumbnail: string, author: {name: string, profilePicture: URL|undefined, profileUrl: URL|undefined}, description: string, sources: {url: URL, resolution: string|undefined, framerate: number|undefined, type: string}[]}}
+     * @param videoInfo {{title: string, subtitle: string|undefined, thumbnail: string, author: {name: string, profilePicture: string|undefined, profileUrl: string|undefined}, description: string, sources: {url: string, resolution: string|undefined, framerate: number|undefined, type: string}[]}}
      */
     constructor(videoInfo) {
         if (!videoInfo.title || !videoInfo.thumbnail || !videoInfo.author.name || !videoInfo.description || !videoInfo.sources)
@@ -729,6 +742,7 @@ class OpenVideoPlayerUI extends EventTarget {
     /**
      * @type {{
      *      root: HTMLDivElement, bottomControls: HTMLDivElement, leftControls: HTMLDivElement, rightControls: HTMLDivElement,
+     *      rootBBox: OpenVideoPlayerUtils.OpenVideoPlayerUtilsCachedBBox,
      *      timeSlider: OpenVideoPlayerSlider, time: HTMLDivElement,
      *      playPause: OpenVideoPlayerControlsButton,
      *      volume: HTMLDivElement, volumeButton: OpenVideoPlayerControlsButton, volumeSliderContainer: HTMLDivElement, volumeSlider: OpenVideoPlayerSlider
@@ -741,6 +755,14 @@ class OpenVideoPlayerUI extends EventTarget {
      */
     #videoInfoElements
     /**
+     * @type {boolean}
+     */
+    #videoInfoAllowed
+    /**
+     * @type {number|null}
+     */
+    #hideControlsAndVideoInfoTimeout
+    /**
      * @type {OpenVideoPlayerStyle}
      */
     #style
@@ -748,6 +770,8 @@ class OpenVideoPlayerUI extends EventTarget {
     constructor(player) {
         super();
         this.#player = player
+        this.#videoInfoAllowed = true
+        this.#hideControlsAndVideoInfoTimeout = null
         this.#createContainer()
         this.#createVideo()
         this.#createThumbnail()
@@ -830,24 +854,8 @@ class OpenVideoPlayerUI extends EventTarget {
         this.#controlsElements = {}
         const root = this.#controlsElements.root = document.createElement("div")
         root.classList.add("controls")
-        const rootBBox = new OpenVideoPlayerUtils.CachedBBox(root)
-        let hideControlsTimeout = undefined
-        const showControls = e => {
-            if (hideControlsTimeout) {
-                clearTimeout(hideControlsTimeout)
-                hideControlsTimeout = undefined
-            }
-
-            root.classList.add("show")
-            const bbox = rootBBox.value
-            // Cancel the hiding if the mouse is within the controls
-            if (e.clientX && e.clientY && e.clientX >= bbox.left && e.clientY >= bbox.top && e.clientX < bbox.right && e.clientY < bbox.bottom) return
-            // Cancel the hiding if the video is paused
-            if (this.#video.paused) return
-            if (this.#controlsElements.timeSlider.sliding) return
-            if (this.#controlsElements.volumeSlider.sliding) return
-            hideControlsTimeout = setTimeout(() => root.classList.remove("show"), 1500)
-        }
+        const rootBBox = this.#controlsElements.rootBBox = new OpenVideoPlayerUtils.CachedBBox(root)
+        const showControls = this.#showAndHideControlsAndVideoInfo.bind(this)
         this.#container.addEventListener("mousemove", showControls)
         this.#container.addEventListener("mouseleave", showControls)
         this.#container.addEventListener("click", showControls)
@@ -955,14 +963,73 @@ class OpenVideoPlayerUI extends EventTarget {
         this.#container.appendChild(root)
     }
 
+    /**
+     * Called to update the visibility of the controls and video info. Bad fn name, ik
+     * @param e {MouseEvent|null}
+     */
+    #showAndHideControlsAndVideoInfo(e = null) {
+        if (this.#hideControlsAndVideoInfoTimeout) {
+            clearTimeout(this.#hideControlsAndVideoInfoTimeout)
+            this.#hideControlsAndVideoInfoTimeout = null
+        }
+
+        this.#controlsElements.root.classList.add("show")
+        this.#videoInfoElements.root.classList.toggle("show", this.#videoInfoAllowed)
+
+        const bbox1 = this.#controlsElements.rootBBox.value
+        const bbox2 = this.#videoInfoElements.rootBBox.value
+        // Cancel the hiding if the mouse is within the controls or video info
+        if (e && OpenVideoPlayerUtils.isPointWithinBBox(bbox1, e.clientX, e.clientY)) return
+        if (e && OpenVideoPlayerUtils.isPointWithinBBox(bbox2, e.clientX, e.clientY)) return
+        // Cancel the hiding if the video is paused
+        if (this.#video.paused) return
+        if (this.#controlsElements.timeSlider.sliding) return
+        if (this.#controlsElements.volumeSlider.sliding) return
+        this.#hideControlsAndVideoInfoTimeout = setTimeout(() => {
+            this.#controlsElements.root.classList.remove("show")
+            this.#videoInfoElements.root.classList.remove("show")
+        }, 1500)
+    }
+
     #createVideoInfo() {
         this.#videoInfoElements = {}
         const root = this.#videoInfoElements.root = document.createElement("div")
         root.classList.add("video-info")
+        const rootBBox = this.#videoInfoElements.rootBBox = new OpenVideoPlayerUtils.CachedBBox(root)
+
+        // Left
+        const left = this.#videoInfoElements.left = document.createElement("div")
+        left.classList.add("left")
+        const author = this.#videoInfoElements.author = document.createElement("div")
+        author.classList.add("author")
+        author.addEventListener("click", () => {
+            if (this.#player.currentVideo.author.profileUrl)
+                OpenVideoPlayerUtils.openLinkInNewTab(this.#player.currentVideo.author.profileUrl)
+        })
+        const authorName = this.#videoInfoElements.authorName = document.createElement("div")
+        authorName.classList.add("author-name")
+        OpenVideoPlayerUtils.setCSSSize(authorName)
+        author.appendChild(authorName)
+        left.appendChild(author)
+
+        // Right
+        const right = this.#videoInfoElements.right = document.createElement("div")
+        right.classList.add("right")
+        const title = this.#videoInfoElements.title = document.createElement("div")
+        title.classList.add("title")
+        const mainTitle = this.#videoInfoElements.mainTitle = document.createElement("div")
+        mainTitle.classList.add("main-title")
+        title.appendChild(mainTitle)
+        const subtitle = this.#videoInfoElements.subtitle = document.createElement("div")
+        subtitle.classList.add("subtitle")
+        title.appendChild(subtitle)
+        right.appendChild(title)
 
         // TODO Add the video info containers etc.
 
         // Finalize
+        root.appendChild(left)
+        root.appendChild(right)
         this.#container.appendChild(root)
     }
 
@@ -1005,8 +1072,21 @@ class OpenVideoPlayerUI extends EventTarget {
         this.#thumbnail.classList.remove("show")
     }
 
-    toggleVideoInfo(show) {
-        this.#videoInfoElements.root.classList.toggle("show", show)
+    allowVideoInfo(allow) {
+        this.#videoInfoAllowed = allow
+        this.#showAndHideControlsAndVideoInfo()
+    }
+
+    /**
+     * @param info {OpenVideoPlayerVideoInfo}
+     */
+    updateVideoInfo(info) {
+        console.log("New video info, update video info elements:", info)
+
+        this.#videoInfoElements.author.classList.toggle("link", info.author.profileUrl)
+        this.#videoInfoElements.authorName.innerText = info.author.name
+        this.#videoInfoElements.mainTitle.innerText = info.title
+        this.#videoInfoElements.subtitle.innerText = info.subtitle || ""
     }
 
     updatePausedControls() {
@@ -1237,7 +1317,7 @@ class OpenVideoPlayer extends EventTarget {
      * Plays a video according to its video info, with the provided options
      * @param videoInfo {OpenVideoPlayerVideoInfo|VIDEO_INFO_OBJECT}
      * @param playOptions {{playImmediately: boolean, showVideoInfo: boolean}}
-     * @template VIDEO_INFO_OBJECT {{title: string, subtitle: string|undefined, thumbnail: string, author: {name: string, profilePicture: URL|undefined, profileUrl: URL|undefined}, description: string, sources: {url: URL, resolution: string|undefined, framerate: number|undefined, type: string}[]}}
+     * @template VIDEO_INFO_OBJECT {{title: string, subtitle: string|undefined, thumbnail: string, author: {name: string, profilePicture: string|undefined, profileUrl: string|undefined}, description: string, sources: {url: string, resolution: string|undefined, framerate: number|undefined, type: string}[]}}
      * @returns {Promise<void>}
      */
     async play(videoInfo, playOptions) {
@@ -1261,7 +1341,8 @@ class OpenVideoPlayer extends EventTarget {
         }
         if (!playOptions.playImmediately) this.#ui.showThumbnail(info.thumbnail)
 
-        this.#ui.toggleVideoInfo(playOptions.showVideoInfo)
+        this.#ui.updateVideoInfo(info)
+        this.#ui.allowVideoInfo(playOptions.showVideoInfo)
     }
 
     /**
@@ -1276,6 +1357,13 @@ class OpenVideoPlayer extends EventTarget {
      */
     get style() {
         return this.#ui.style
+    }
+
+    /**
+     * @returns {OpenVideoPlayerVideoInfo|null}
+     */
+    get currentVideo() {
+        return this.#currentVideo
     }
 
     // Proxies for the UI

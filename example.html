@@ -14,21 +14,22 @@
     document.getElementById("container").appendChild(player.container)
 
     // Video from https://gist.github.com/jsturgis/3b19447b304616f18657
-    const videoInfo = {
-        "title": "Big Buck Bunny",
-        "subtitle": "By Blender Foundation",
-        "description": "Big Buck Bunny tells the story of a giant rabbit with a heart bigger than himself. When one sunny day three rodents rudely harass him, something snaps... and the rabbit ain't no bunny anymore! In the typical cartoon tradition he prepares the nasty rodents a comical revenge.\n\nLicensed under the Creative Commons Attribution license\nhttp://www.bigbuckbunny.org",
-        "sources": [
+    const videoInfo = new OpenVideoPlayerVideoInfo({
+        title: "Big Buck Bunny",
+        subtitle: "By Blender Foundation",
+        description: "Big Buck Bunny tells the story of a giant rabbit with a heart bigger than himself. When one sunny day three rodents rudely harass him, something snaps... and the rabbit ain't no bunny anymore! In the typical cartoon tradition he prepares the nasty rodents a comical revenge.\n\nLicensed under the Creative Commons Attribution license\nhttp://www.bigbuckbunny.org",
+        sources: [
             {
-                "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                "type": "video/mp4"
+                url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                type: "video/mp4"
             }
         ],
-        "thumbnail": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg",
-        "author": {
-            "name": "The Blender Foundation"
+        thumbnail: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg",
+        author: {
+            name: "The Blender Foundation",
+            profileUrl: "https://example.com/"
         }
-    }
+    })
 
     player.play(videoInfo, {playImmediately: false, showVideoInfo: true})
 
